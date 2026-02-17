@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Christopher Osaiyuwu | Digital Creator Portfolio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <!-- Background layer -->
+  <div class="bg-effects" aria-hidden="true">
+    <div class="blue-streak s1"></div>
+    <div class="blue-streak s2"></div>
+    <div class="blue-streak s3"></div>
+
+    <div class="purple-dots d1"></div>
+    <div class="purple-dots d2"></div>
+    <div class="purple-dots d3"></div>
+
+    <div class="heart h1"></div>
+    <div class="heart h2"></div>
+    <div class="heart h3"></div>
+    <div class="heart h4"></div>
+  </div>
+
+  <header class="site-header">
+    <div class="container">
+      <div class="hero">
+        <p class="tagline">Professional • Versatile • Results-driven</p>
+        <h1>Christopher <span class="accent">Osaiyuwu</span></h1>
+        <h2 class="subtitle">Digital Creator | Design • Audio • Web • Marketing • Data</h2>
+
+        <p class="hero-desc">
+          I’m a professional and versatile digital creator specializing in graphics design, music production, sound design,
+          data entry, digital marketing, SEO, AI training, web development, customer service, and content creation.
+        </p>
+
+        <div class="hero-actions">
+          <a class="btn primary" href="#portfolio">View Portfolio</a>
+          <a class="btn ghost" href="#contact">Contact</a>
+        </div>
+
+        <div class="contact-mini">
+          <span>📧 Chrislive2003@gmail.com</span>
+          <span>📧 Cosaiyuwu@yahoo.com</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- SKILLS -->
+    <section class="section" id="skills">
+      <div class="container">
+        <div class="section-head">
+          <h3 class="section-title">Skills & Specialties</h3>
+          <p class="section-subtitle">A snapshot of what I can do for your team or business.</p>
+        </div>
+
+        <div class="skills-grid" id="skillsGrid"></div>
+      </div>
+    </section>
+
+    <!-- PORTFOLIO -->
+    <section class="section" id="portfolio">
+      <div class="container">
+        <div class="section-head">
+          <h3 class="section-title">Portfolio</h3>
+          <p class="section-subtitle">
+            Employers can view and download portfolio work below. I can upload anything (images, video, audio, spreadsheets, etc).
+          </p>
+        </div>
+
+        <div class="portfolio-toolbar">
+          <div class="admin-box">
+            <button class="btn small ghost" id="adminToggleBtn" type="button">Admin: OFF</button>
+            <span class="hint">Admin mode enables upload + delete (requires your key).</span>
+          </div>
+          <button class="btn small ghost" id="refreshBtn" type="button">Refresh</button>
+        </div>
+
+        <!-- Upload box (only usable in admin mode) -->
+        <div class="upload-card" id="uploadCard">
+          <h4 class="upload-title">Upload New Portfolio Item</h4>
+
+          <form id="uploadForm">
+            <div class="form-row">
+              <label>Title</label>
+              <input type="text" id="titleInput" placeholder="e.g., Logo design for a brand / Beat pack / SEO report" />
+            </div>
+
+            <div class="form-row">
+              <label>Description</label>
+              <textarea id="descInput" placeholder="What is it? What tools did you use? What result did it achieve?"></textarea>
+            </div>
+
+            <div class="form-row">
+              <label>File</label>
+              <input type="file" id="fileInput" />
+              <p class="micro">
+                Tip: Images/video/audio will show a preview tile. Other files show a download card.
+              </p>
+            </div>
+
+            <div class="form-actions">
+              <button class="btn primary" type="submit">Upload</button>
+              <div class="status" id="uploadStatus" aria-live="polite"></div>
+            </div>
+          </form>
+        </div>
+
+        <!-- Portfolio grid -->
+        <div class="portfolio-grid" id="portfolioGrid"></div>
+      </div>
+    </section>
+
+    <!-- CONTACT -->
+    <section class="section" id="contact">
+      <div class="container">
+        <div class="section-head">
+          <h3 class="section-title">Contact</h3>
+          <p class="section-subtitle">
+            If you’re hiring or want to collaborate, reach out—I'm responsive and professional.
+          </p>
+        </div>
+
+        <div class="contact-card">
+          <div class="contact-line">
+            <span class="label">Email:</span>
+            <a href="mailto:Chrislive2003@gmail.com">Chrislive2003@gmail.com</a>
+          </div>
+          <div class="contact-line">
+            <span class="label">Email:</span>
+            <a href="mailto:Cosaiyuwu@yahoo.com">Cosaiyuwu@yahoo.com</a>
+          </div>
+
+          <p class="contact-note">
+            Include a quick description of the role/project, timeline, and budget/salary range.
+          </p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>© <span id="year"></span> Christopher Osaiyuwu • Built with a clean neon-tech aesthetic.</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
