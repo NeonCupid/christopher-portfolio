@@ -1,5 +1,7 @@
 const express = require("express");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 const multer = require("multer");
 const helmet = require("helmet");
 const { v4: uuidv4 } = require("uuid");
@@ -13,35 +15,62 @@ const ADMIN_KEY = process.env.ADMIN_KEY || "change_me";
 
 const PUBLIC_DIR = path.join(__dirname, "public");
 
-// --- Supabase ---
+// --------------------
+// Supabase config
+// --------------------
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables.");
+  throw new Error(
+    "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables."
+  );
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const BUCKET = "portfolio-uploads";
-const TABLE = "portfolio_items";
+const BUCKET = "portfolio-uploads";     // <-- must match your Supabase Storage bucket name
+const TABLE = "portfolio_items";        // <-- must match your Supabase table name
 
-// --- Security + basic middleware ---
+// --------------------
+// Middleware
+// --------------------
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
+
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(PUBLIC_DIR));
 
-// --- Multer (store file in memory, then upload to Supabase Storage) ---
+// --------------------
+// Multer (disk storage to avoid RAM spikes on Render)
+// --------------------
+const TMP_DIR = path.join(os.tmpdir(), "portfolio_uploads");
+if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
+
 const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 }, // 200MB
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, TMP_DIR),
+    filename: (req, file, cb) => {
+      const id = uuidv4();
+      const ext = path.extname(file.originalname) || "";
+      cb(null, `${id}${ext}`);
+    },
+  }),
+  limits: {
+    // Keep this reasonable for your Render plan. 200MB can still work with disk,
+    // but upload timeouts can happen depending on connection/proxy.
+    fileSize: 200 * 1024 * 1024,
+  },
 });
 
-// --- API: List portfolio items ---
+// --------------------
+// Routes
+// --------------------
+
+// List portfolio items
 app.get("/api/portfolio", async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -51,7 +80,6 @@ app.get("/api/portfolio", async (req, res) => {
 
     if (error) throw error;
 
-    // Keep response shape similar to your old code
     const items = (data || []).map((x) => ({
       id: x.id,
       title: x.title,
@@ -66,13 +94,20 @@ app.get("/api/portfolio", async (req, res) => {
 
     res.json({ ok: true, items });
   } catch (err) {
-    console.error(err);
+    console.error("GET /api/portfolio error:", err);
     res.status(500).json({ ok: false, error: "Failed to load portfolio." });
   }
 });
 
-// --- API: Upload portfolio item ---
+// Upload portfolio item
 app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
+  // Always try to clean up temp file on any exit path
+  const cleanupTemp = () => {
+    if (req.file?.path && fs.existsSync(req.file.path)) {
+      fs.unlink(req.file.path, () => {});
+    }
+  };
+
   try {
     if (!req.file) {
       return res.status(400).json({ ok: false, error: "No file received." });
@@ -80,25 +115,29 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
 
     const { title = "", description = "" } = req.body;
 
-    const id = uuidv4();
-    const ext = path.extname(req.file.originalname) || "";
-    const storedName = `${id}${ext}`;
+    const id = path.parse(req.file.filename).name; // uuid from multer filename
+    const storedName = req.file.filename;
 
-    // 1) Upload to Supabase Storage
+    // Upload to Supabase Storage using a stream (low RAM)
+    const fileStream = fs.createReadStream(req.file.path);
+
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
-      .upload(storedName, req.file.buffer, {
+      .upload(storedName, fileStream, {
         contentType: req.file.mimetype,
         upsert: false,
       });
 
     if (uploadError) throw uploadError;
 
-    // 2) Get public URL (bucket must be public)
-    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storedName);
+    // Get public URL (bucket should be public for this to work easily)
+    const { data: urlData } = supabase.storage
+      .from(BUCKET)
+      .getPublicUrl(storedName);
+
     const publicUrl = urlData?.publicUrl;
 
-    // 3) Insert metadata into table
+    // Insert metadata into Supabase table
     const row = {
       id,
       title: String(title).trim() || req.file.originalname,
@@ -119,7 +158,8 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
 
     if (insertError) throw insertError;
 
-    // Keep response shape similar to before
+    cleanupTemp();
+
     const item = {
       id: inserted.id,
       title: inserted.title,
@@ -134,12 +174,13 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
 
     res.json({ ok: true, item });
   } catch (err) {
-    console.error(err);
+    console.error("POST /api/portfolio/upload error:", err);
+    cleanupTemp();
     res.status(500).json({ ok: false, error: "Upload failed." });
   }
 });
 
-// --- API: Delete portfolio item (admin-only) ---
+// Delete portfolio item (admin-only)
 app.delete("/api/portfolio/:id", async (req, res) => {
   try {
     const providedKey = req.headers["x-admin-key"];
@@ -149,37 +190,38 @@ app.delete("/api/portfolio/:id", async (req, res) => {
 
     const id = req.params.id;
 
-    // 1) Find the row
+    // Find item (need stored_name to delete file)
     const { data: row, error: findError } = await supabase
       .from(TABLE)
       .select("stored_name")
       .eq("id", id)
       .single();
 
-    if (findError) {
-      // If not found, Supabase often returns an error; handle as 404
+    if (findError || !row) {
       return res.status(404).json({ ok: false, error: "Item not found." });
     }
 
-    // 2) Delete DB row
+    // Delete DB row
     const { error: delRowError } = await supabase.from(TABLE).delete().eq("id", id);
     if (delRowError) throw delRowError;
 
-    // 3) Delete file from Storage
+    // Delete from Storage
     const storedName = row.stored_name;
     if (storedName) {
-      const { error: delFileError } = await supabase.storage.from(BUCKET).remove([storedName]);
+      const { error: delFileError } = await supabase.storage
+        .from(BUCKET)
+        .remove([storedName]);
       if (delFileError) throw delFileError;
     }
 
     res.json({ ok: true });
   } catch (err) {
-    console.error(err);
+    console.error("DELETE /api/portfolio/:id error:", err);
     res.status(500).json({ ok: false, error: "Delete failed." });
   }
 });
 
-// --- Health check ---
+// Health check
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, status: "healthy" });
 });
