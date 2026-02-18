@@ -32,18 +32,24 @@ const BUCKET = "portfolio-uploads";
 const TABLE = "portfolio_items";
 
 // --- Security + basic middleware ---
+const SUPABASE_HOST = new URL(process.env.SUPABASE_URL).origin;
+
 app.use(
   helmet({
-    // ✅ This is the big one: if COEP is on, cross-origin <img>/<audio>/<video> can fail
     crossOriginEmbedderPolicy: false,
-
-    // ✅ Keep allowing resources to be used cross-origin
     crossOriginResourcePolicy: { policy: "cross-origin" },
-
-    // Optional but helps avoid weird cross-window issues
-    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        // keep defaults and add Supabase for media
+        "img-src": ["'self'", "data:", "blob:", SUPABASE_HOST],
+        "media-src": ["'self'", "data:", "blob:", SUPABASE_HOST],
+        "connect-src": ["'self'", SUPABASE_HOST],
+      },
+    },
   })
 );
+
 
 
 
