@@ -180,13 +180,20 @@ function renderPortfolioItem(item){
 
     <div class="preview">
       ${isImage ? `
-        <img src="${item.url}" alt="${escapeHtml(item.title || item.originalName || "Image")}" loading="lazy" />
+        <img src="${item.url}"
+     alt="${escapeHtml(item.title || item.originalName || "Image")}"
+     loading="lazy"
+     crossorigin="anonymous"
+     referrerpolicy="no-referrer" />
+
       ` : ""}
       ${isVideo ? `
-        <video src="${item.url}" controls preload="metadata"></video>
+        <video src="${item.url}" controls preload="metadata" crossorigin="anonymous"></video>
+
       ` : ""}
       ${isAudio ? `
-        <audio src="${item.url}" controls preload="metadata"></audio>
+        <audio src="${item.url}" controls preload="metadata" crossorigin="anonymous"></audio>
+
       ` : ""}
       ${(!isImage && !isVideo && !isAudio) ? `
         <div class="file-row">
