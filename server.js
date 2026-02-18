@@ -5,6 +5,7 @@ const os = require("os");
 const multer = require("multer");
 const helmet = require("helmet");
 const { v4: uuidv4 } = require("uuid");
+const { Readable } = require("stream"); // ✅ needed for Readable.toWeb
 require("dotenv").config();
 
 const { createClient } = require("@supabase/supabase-js");
@@ -29,8 +30,9 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-const BUCKET = "portfolio-uploads";     // <-- must match your Supabase Storage bucket name
-const TABLE = "portfolio_items";        // <-- must match your Supabase table name
+// Must match your Supabase setup
+const BUCKET = "portfolio-uploads";
+const TABLE = "portfolio_items";
 
 // --------------------
 // Middleware
@@ -60,9 +62,7 @@ const upload = multer({
     },
   }),
   limits: {
-    // Keep this reasonable for your Render plan. 200MB can still work with disk,
-    // but upload timeouts can happen depending on connection/proxy.
-    fileSize: 200 * 1024 * 1024,
+    fileSize: 200 * 1024 * 1024, // 200MB
   },
 });
 
@@ -95,13 +95,12 @@ app.get("/api/portfolio", async (req, res) => {
     res.json({ ok: true, items });
   } catch (err) {
     console.error("GET /api/portfolio error:", err);
-    res.status(500).json({ ok: false, error: "Failed to load portfolio." });
+    res.status(500).json({ ok: false, error: err?.message || "Failed to load portfolio." });
   }
 });
 
 // Upload portfolio item
 app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
-  // Always try to clean up temp file on any exit path
   const cleanupTemp = () => {
     if (req.file?.path && fs.existsSync(req.file.path)) {
       fs.unlink(req.file.path, () => {});
@@ -118,26 +117,31 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
     const id = path.parse(req.file.filename).name; // uuid from multer filename
     const storedName = req.file.filename;
 
-    // Upload to Supabase Storage using a stream (low RAM)
-    const fileStream = fs.createReadStream(req.file.path);
+    // ✅ Upload to Supabase Storage using Web stream (prevents Node stream issues)
+    const nodeStream = fs.createReadStream(req.file.path);
+    const webStream = Readable.toWeb(nodeStream);
 
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
-      .upload(storedName, fileStream, {
+      .upload(storedName, webStream, {
         contentType: req.file.mimetype,
         upsert: false,
       });
 
     if (uploadError) throw uploadError;
 
-    // Get public URL (bucket should be public for this to work easily)
+    // Get public URL (bucket should be public)
     const { data: urlData } = supabase.storage
       .from(BUCKET)
       .getPublicUrl(storedName);
 
     const publicUrl = urlData?.publicUrl;
 
-    // Insert metadata into Supabase table
+    if (!publicUrl) {
+      throw new Error("Could not generate a public URL. Is the bucket public?");
+    }
+
+    // Insert metadata into table
     const row = {
       id,
       title: String(title).trim() || req.file.originalname,
@@ -176,7 +180,10 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
   } catch (err) {
     console.error("POST /api/portfolio/upload error:", err);
     cleanupTemp();
-    res.status(500).json({ ok: false, error: "Upload failed." });
+    res.status(500).json({
+      ok: false,
+      error: err?.message || "Upload failed.",
+    });
   }
 });
 
@@ -217,7 +224,7 @@ app.delete("/api/portfolio/:id", async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error("DELETE /api/portfolio/:id error:", err);
-    res.status(500).json({ ok: false, error: "Delete failed." });
+    res.status(500).json({ ok: false, error: err?.message || "Delete failed." });
   }
 });
 
