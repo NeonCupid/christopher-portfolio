@@ -34,9 +34,11 @@ const TABLE = "portfolio_items";
 // --- Security + basic middleware ---
 app.use(
   helmet({
+    crossOriginEmbedderPolicy: false, // ✅ allow embedding Supabase images/audio/video
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
+
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(PUBLIC_DIR));
 
@@ -134,6 +136,45 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
         contentType,
         upsert: false,
       });
+
+      app.get("/api/portfolio/download/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const { data: row, error } = await supabase
+      .from(TABLE)
+      .select("stored_name, original_name, mime_type")
+      .eq("id", id)
+      .single();
+
+    if (error || !row) {
+      return res.status(404).send("Not found");
+    }
+
+    // Download from Supabase Storage using service role
+    const { data: file, error: dlError } = await supabase.storage
+      .from(BUCKET)
+      .download(row.stored_name);
+
+    if (dlError || !file) {
+      return res.status(404).send("File not found");
+    }
+
+    const filename = row.original_name || row.stored_name;
+    const contentType = row.mime_type || "application/octet-stream";
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    // `file` is a Blob in Node; convert to Buffer and send
+    const arrayBuffer = await file.arrayBuffer();
+    res.send(Buffer.from(arrayBuffer));
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Download failed");
+  }
+});
+
 
     if (uploadError) throw uploadError;
 

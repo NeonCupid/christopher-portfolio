@@ -209,7 +209,8 @@ function renderPortfolioItem(item){
     <div style="height:10px"></div>
 
     <div class="actions">
-      <a class="btn small dl" href="${item.url}" download>Download</a>
+      <a class="btn small dl" href="/api/portfolio/download/${encodeURIComponent(item.id)}" download>Download</a>
+
       ${adminMode ? `<button class="btn small danger" type="button" data-del="${item.id}">Delete</button>` : ""}
     </div>
   `;
