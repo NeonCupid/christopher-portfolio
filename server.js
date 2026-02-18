@@ -34,10 +34,11 @@ const TABLE = "portfolio_items";
 // --- Security + basic middleware ---
 app.use(
   helmet({
-    crossOriginEmbedderPolicy: false, // ✅ allow embedding Supabase images/audio/video
+    crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
+
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.static(PUBLIC_DIR));
