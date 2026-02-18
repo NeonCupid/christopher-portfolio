@@ -5,13 +5,17 @@ const os = require("os");
 const multer = require("multer");
 const helmet = require("helmet");
 const { v4: uuidv4 } = require("uuid");
-const { Readable } = require("stream"); // ✅ needed for Readable.toWeb
+const { Readable } = require("stream"); // for Readable.toWeb
+const mime = require("mime-types");     // ✅ NEW: reliable content-type fallback
 require("dotenv").config();
 
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ✅ IMPORTANT: Set this in Render -> Environment as ADMIN_KEY
+// If not set, it defaults to "change_me" and you'll get Unauthorized unless you type that exact string.
 const ADMIN_KEY = process.env.ADMIN_KEY || "change_me";
 
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -23,9 +27,7 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error(
-    "Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables."
-  );
+  throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables.");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -62,9 +64,27 @@ const upload = multer({
     },
   }),
   limits: {
-    fileSize: 200 * 1024 * 1024, // 200MB
+    fileSize: 200 * 1024 * 1024, // 200MB (Supabase may still reject very large files based on plan)
   },
 });
+
+// --------------------
+// Helpers
+// --------------------
+function cleanupFile(filePath) {
+  if (filePath && fs.existsSync(filePath)) {
+    fs.unlink(filePath, () => {});
+  }
+}
+
+function getDetectedContentType(file) {
+  // req.file.mimetype is usually good, but can be blank/wrong for some audio types
+  return (
+    file?.mimetype ||
+    mime.lookup(file?.originalname || "") ||
+    "application/octet-stream"
+  );
+}
 
 // --------------------
 // Routes
@@ -101,12 +121,6 @@ app.get("/api/portfolio", async (req, res) => {
 
 // Upload portfolio item
 app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
-  const cleanupTemp = () => {
-    if (req.file?.path && fs.existsSync(req.file.path)) {
-      fs.unlink(req.file.path, () => {});
-    }
-  };
-
   try {
     if (!req.file) {
       return res.status(400).json({ ok: false, error: "No file received." });
@@ -117,24 +131,27 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
     const id = path.parse(req.file.filename).name; // uuid from multer filename
     const storedName = req.file.filename;
 
-    // ✅ Upload to Supabase Storage using Web stream (prevents Node stream issues)
+    // ✅ Detect content-type robustly (helps audio/video play in browser)
+    const detectedType = getDetectedContentType(req.file);
+
+    // Upload to Supabase Storage using Web stream (prevents Node stream issues)
     const nodeStream = fs.createReadStream(req.file.path);
     const webStream = Readable.toWeb(nodeStream);
 
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(storedName, webStream, {
-        contentType: req.file.mimetype,
+        contentType: detectedType,
         upsert: false,
       });
 
     if (uploadError) throw uploadError;
 
-    // Get public URL (bucket should be public)
-    const { data: urlData } = supabase.storage
-      .from(BUCKET)
-      .getPublicUrl(storedName);
+    // Clean temp file after upload succeeds
+    cleanupFile(req.file.path);
 
+    // Get public URL (bucket should be public)
+    const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(storedName);
     const publicUrl = urlData?.publicUrl;
 
     if (!publicUrl) {
@@ -148,8 +165,8 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
       description: String(description).trim(),
       original_name: req.file.originalname,
       stored_name: storedName,
-      mime_type: req.file.mimetype,
-      size_bytes: req.file.size,
+      mime_type: detectedType,        // ✅ store detected type
+      size_bytes: req.file.size,      // in Supabase column use int8 (bigint)
       url: publicUrl,
       uploaded_at: new Date().toISOString(),
     };
@@ -161,8 +178,6 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
       .single();
 
     if (insertError) throw insertError;
-
-    cleanupTemp();
 
     const item = {
       id: inserted.id,
@@ -179,7 +194,10 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
     res.json({ ok: true, item });
   } catch (err) {
     console.error("POST /api/portfolio/upload error:", err);
-    cleanupTemp();
+
+    // Always cleanup temp file on failure too
+    cleanupFile(req.file?.path);
+
     res.status(500).json({
       ok: false,
       error: err?.message || "Upload failed.",
@@ -191,8 +209,20 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
 app.delete("/api/portfolio/:id", async (req, res) => {
   try {
     const providedKey = req.headers["x-admin-key"];
-    if (!providedKey || providedKey !== ADMIN_KEY) {
-      return res.status(401).json({ ok: false, error: "Unauthorized." });
+
+    // ✅ Make unauthorized errors easier to debug
+    if (!providedKey) {
+      return res.status(401).json({
+        ok: false,
+        error: "Unauthorized. Missing x-admin-key header (toggle Admin and enter your ADMIN_KEY).",
+      });
+    }
+
+    if (providedKey !== ADMIN_KEY) {
+      return res.status(401).json({
+        ok: false,
+        error: "Unauthorized. Admin key mismatch (check Render ENV ADMIN_KEY and re-enter it on the site).",
+      });
     }
 
     const id = req.params.id;
