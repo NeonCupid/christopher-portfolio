@@ -41,7 +41,7 @@ app.use(express.json({ limit: "2mb" }));
 app.use(express.static(PUBLIC_DIR));
 
 // --- Temp upload dir (Render free disk is NOT persistent, so we use temp only) ---
-const TMP_DIR = path.join(os.tmpdir(), "portfolio_uploads");
+const TMP_DIR = path.join(os.tmpdir(), "portfolio-uploads");
 if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 
 function cleanupTemp(filePath) {
@@ -86,17 +86,22 @@ app.get("/api/portfolio", async (req, res) => {
 
     if (error) throw error;
 
-    const items = (data || []).map((x) => ({
-      id: x.id,
-      title: x.title,
-      description: x.description,
-      originalName: x.original_name,
-      storedName: x.stored_name,
-      mimeType: x.mime_type,
-      sizeBytes: x.size_bytes,
-      url: x.url, // public URL from Supabase Storage
-      uploadedAt: x.uploaded_at,
-    }));
+    const items = (data || []).map((x) => {
+  const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(x.stored_name);
+
+  return {
+    id: x.id,
+    title: x.title,
+    description: x.description,
+    originalName: x.original_name,
+    storedName: x.stored_name,
+    mimeType: x.mime_type,
+    sizeBytes: x.size_bytes,
+    url: urlData?.publicUrl || x.url, // ✅ always prefer correct URL
+    uploadedAt: x.uploaded_at,
+  };
+});
+
 
     res.json({ ok: true, items });
   } catch (err) {
