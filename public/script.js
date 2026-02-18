@@ -103,7 +103,15 @@ uploadForm.addEventListener("submit", async (e) => {
       body: fd
     });
 
-    const data = await res.json();
+    // Read as text first so we never crash on invalid/empty JSON
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Upload failed (${res.status}). Server returned: ${text.slice(0, 200) || "empty response"}`);
+    }
+
     if (!data.ok) throw new Error(data.error || "Upload failed.");
 
     uploadStatus.textContent = "✅ Uploaded successfully.";
@@ -127,8 +135,16 @@ async function loadPortfolio(){
 
   try {
     const res = await fetch("/api/portfolio");
-    const data = await res.json();
-    if (!data.ok) throw new Error("Failed to load.");
+
+    const text = await res.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(`Failed to load (${res.status}). Server returned: ${text.slice(0, 200) || "empty response"}`);
+    }
+
+    if (!data.ok) throw new Error(data.error || "Failed to load.");
 
     const items = data.items || [];
     portfolioGrid.innerHTML = "";
@@ -148,7 +164,7 @@ async function loadPortfolio(){
     portfolioGrid.innerHTML = "";
     const fail = document.createElement("div");
     fail.className = "status";
-    fail.textContent = "❌ Could not load portfolio. Check server is running.";
+    fail.textContent = `❌ Could not load portfolio. ${err.message || "Check server is running."}`;
     portfolioGrid.appendChild(fail);
   }
 }
@@ -167,6 +183,8 @@ function renderPortfolioItem(item){
   const isVideo = mime.startsWith("video/");
   const isAudio = mime.startsWith("audio/");
 
+  const mimeGuess = mime || guessMimeFromName(item.originalName || item.storedName || "");
+
   wrap.innerHTML = `
     <div class="p-head">
       <div>
@@ -183,10 +201,18 @@ function renderPortfolioItem(item){
         <img src="${item.url}" alt="${escapeHtml(item.title || item.originalName || "Image")}" loading="lazy" />
       ` : ""}
       ${isVideo ? `
-        <video src="${item.url}" controls preload="metadata"></video>
+        <video controls preload="metadata" playsinline crossorigin="anonymous">
+          <source src="${item.url}" type="${escapeHtml(mimeGuess)}">
+          Your browser can’t play this video.
+          <a href="${item.url}" target="_blank" rel="noopener">Open file</a>
+        </video>
       ` : ""}
       ${isAudio ? `
-        <audio src="${item.url}" controls preload="metadata"></audio>
+        <audio controls preload="metadata" crossorigin="anonymous">
+          <source src="${item.url}" type="${escapeHtml(mimeGuess)}">
+          Your browser can’t play this audio.
+          <a href="${item.url}" target="_blank" rel="noopener">Open file</a>
+        </audio>
       ` : ""}
       ${(!isImage && !isVideo && !isAudio) ? `
         <div class="file-row">
@@ -203,9 +229,22 @@ function renderPortfolioItem(item){
 
     <div class="actions">
       <a class="btn small dl" href="${item.url}" download>Download</a>
+      <a class="btn small" href="${item.url}" target="_blank" rel="noopener">Open</a>
       ${adminMode ? `<button class="btn small danger" type="button" data-del="${item.id}">Delete</button>` : ""}
     </div>
   `;
+
+  // Show a useful message if media fails to load
+  const mediaEl = wrap.querySelector("video, audio");
+  if (mediaEl) {
+    mediaEl.addEventListener("error", () => {
+      const msg = document.createElement("div");
+      msg.className = "status";
+      msg.textContent = "⚠️ Media failed to load. Try opening the file link (it may be blocked or stored with the wrong type).";
+      const preview = wrap.querySelector(".preview");
+      if (preview && !preview.querySelector(".status")) preview.appendChild(msg);
+    });
+  }
 
   if (adminMode) {
     const delBtn = wrap.querySelector(`[data-del="${item.id}"]`);
@@ -220,7 +259,15 @@ function renderPortfolioItem(item){
             "x-admin-key": adminKey
           }
         });
-        const data = await res.json();
+
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error(`Delete failed (${res.status}). Server returned: ${text.slice(0, 200) || "empty response"}`);
+        }
+
         if (!data.ok) throw new Error(data.error || "Delete failed.");
         await loadPortfolio();
       } catch (err) {
@@ -242,6 +289,17 @@ function shortMime(mime){
   if (mime.includes("csv")) return "csv";
   if (mime.includes("pdf")) return "pdf";
   return mime.split("/")[1] ? mime.split("/")[1] : "file";
+}
+
+function guessMimeFromName(name = "") {
+  const n = String(name).toLowerCase();
+  if (n.endsWith(".mp4")) return "video/mp4";
+  if (n.endsWith(".webm")) return "video/webm";
+  if (n.endsWith(".mov")) return "video/quicktime";
+  if (n.endsWith(".mp3")) return "audio/mpeg";
+  if (n.endsWith(".wav")) return "audio/wav";
+  if (n.endsWith(".ogg")) return "audio/ogg";
+  return "";
 }
 
 function escapeHtml(str){
