@@ -34,10 +34,17 @@ const TABLE = "portfolio_items";
 // --- Security + basic middleware ---
 app.use(
   helmet({
+    // ✅ This is the big one: if COEP is on, cross-origin <img>/<audio>/<video> can fail
     crossOriginEmbedderPolicy: false,
+
+    // ✅ Keep allowing resources to be used cross-origin
     crossOriginResourcePolicy: { policy: "cross-origin" },
+
+    // Optional but helps avoid weird cross-window issues
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   })
 );
+
 
 
 app.use(express.json({ limit: "2mb" }));
@@ -125,7 +132,11 @@ app.post("/api/portfolio/upload", upload.single("file"), async (req, res) => {
     const id = path.parse(req.file.filename).name; // uuid
     const storedName = req.file.filename;
 
-    const contentType = detectContentType(req.file);
+    const contentType =
+  req.file.mimetype ||
+  mime.lookup(req.file.originalname) ||
+  "application/octet-stream";
+
 
     // Upload to Supabase Storage (use Web stream for Node compatibility)
     const nodeStream = fs.createReadStream(req.file.path);
