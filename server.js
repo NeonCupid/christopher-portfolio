@@ -272,8 +272,9 @@ app.delete("/api/portfolio/:id", async (req, res) => {
 
 // --- Health check ---
 app.get("/api/health", (req, res) => {
-  res.json({ ok: true, status: "healthy", storage: "LOCAL_DISK" });
+  res.json({ ok: true, status: "healthy", storage: "SUPABASE" });
 });
+
 
 
 app.listen(PORT, () => {
